@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mind Map Your Ideas — v3 (Autosave • Undo/Redo • Zoom/Pan • Inline Edit • PNG)</title>
+<style>
+  :root{
+    --ink:#111;
+    --paper:#fafafa;
+    --challenge:#f2f2f2;
+    --bubble:#fff;
+  }
+  html,body{height:100%;}
+  body{
+    margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
+    background:var(--paper); color:var(--ink);
+    display:flex; flex-direction:column; min-height:100vh;
+  }
+  header{
+    padding:12px 16px; border-bottom:1px solid #ddd; background:#fff; display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+  }
+  header h1{font-size:18px; margin:0 8px 0 0; font-weight:700;}
+  .theme-input{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+  .theme-input input{padding:10px 12px; border:1.5px solid #111; border-radius:999px; min-width:220px; font-size:14px;}
+  .theme-input button{padding:10px 14px; border:1.5px solid #111; background:#111; color:#fff; border-radius:999px; cursor:pointer;}
+  .hint{font-size:12px; opacity:.7;}
+
+  .appearance{margin-left:auto; display:flex; gap:8px; align-items:center;}
+  select, input[type=color]{padding:8px 10px; border:1.5px solid #111; border-radius:10px; background:#fff;}
+
+  #stage-wrap{flex:1; position:relative; overflow:hidden;}
+  #stage{width:100%; height:100%; display:block;}
+  .bg-paper #stage{ background: radial-gradient(transparent 0 96%, rgba(0,0,0,.02) 96% 100%), #fff;}
+  .bg-white #stage{ background:#fff; }
+  .bg-cream #stage{ background:#fffaf0; }
+  .bg-blue #stage{ background:#f3f7ff; }
+  .bg-dot #stage{ background-image: radial-gradient(#0000000f 1px, transparent 1px); background-size: 18px 18px; background-color:#fff; }
+  .bg-pink #stage{ background:pink; }
+  .bg-pink .node-label{ fill:#000; }
+
+  .toolbar{
+    border-top:1px solid #ddd; background:#fff; display:flex; gap:8px; padding:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+  }
+  .left, .right{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+  .btn{padding:10px 14px; border:1.5px solid #111; border-radius:12px; background:#fff; cursor:pointer; font-weight:600;}
+  .btn.primary{background:#111; color:#fff;}
+  .btn.icon{display:inline-flex; gap:8px; align-items:center;}
+  .mini{font-size:12px;}
+
+  .bubble, .card{position:absolute; background:var(--bubble); border:1.5px solid #111; border-radius:12px; padding:10px 12px; max-width:260px; box-shadow:2px 2px 0 #111;}
+  .card{background:var(--challenge);}  
+  .bubble .actions, .card .actions{display:flex; gap:8px; margin-top:8px;}
+
+  .node-circle{stroke:#000;}
+  .node-circle.central{stroke-width:3;}
+  .node-circle.branch{stroke-width:2;}
+  .node-label{font-size:12px; font-weight:600; text-anchor:middle; dominant-baseline:middle; fill:#000;}
+  .link{stroke:#000; stroke-width:1.5;}
+
+  .context{position:absolute; background:#fff; border:1.5px solid #111; border-radius:10px; box-shadow:2px 2px 0 #111; padding:8px; display:none; min-width:160px;}
+  .context button{display:block; width:100%; padding:8px 10px; background:#fff; border:1px solid #111; border-radius:8px; margin:4px 0; cursor:pointer;}
+  .context .row{display:flex; align-items:center; gap:6px; margin-top:6px;}
+  .swatches{display:grid; grid-template-columns:repeat(6, 18px); gap:6px; margin-top:6px;}
+  .swatch{width:18px; height:18px; border:1px solid #111; border-radius:4px; cursor:pointer;}
+
+  /* Inline editor */
+  #inlineEditor{
+    position:absolute; display:none; z-index:5;
+    padding:6px 8px; border:1.5px solid #111; border-radius:10px; background:#fff;
+    font: 600 12px system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+    box-shadow: 2px 2px 0 #111;
+  }
+</style>
+</head>
+<body class="bg-paper">
+  <header>
+    <h1>Mind Map Your Ideas</h1>
+    <div class="theme-input">
+      <input id="themeInput" placeholder="Type your theme…" />
+      <button id="makeTheme" class="primary">Create central theme</button>
+      <span class="hint">Tip: double-click a label to edit inline</span>
+    </div>
+
+    <div class="appearance">
+      <label for="bgSelect" class="hint">Background:</label>
+      <select id="bgSelect" title="Choose background">
+        <option value="bg-paper" selected>Paper</option>
+        <option value="bg-white">White</option>
+        <option value="bg-cream">Soft cream</option>
+        <option value="bg-blue">Pale blue</option>
+        <option value="bg-dot">Dot grid</option>
+        <option value="bg-pink">Pink</option>
+      </select>
+    </div>
+  </header>
+
+  <div id="stage-wrap">
+    <svg id="stage">
+      <g id="viewport">
+        <!-- links and nodes will be inserted here -->
+      </g>
+    </svg>
+    <div id="context" class="context">
+      <button data-action="add">Add branch</button>
+      <button data-action="sub">Add sub-branch</button>
+      <button data-action="edit">Edit text</button>
+      <button data-action="del">Delete</button>
+      <div class="row"><span class="hint">Node colour:</span></div>
+      <div class="swatches" id="swatches"></div>
+      <div class="row"><input type="color" id="colorPicker" title="Custom colour"></div>
+    </div>
+    <input id="inlineEditor" />
+  </div>
+
+  <div class="toolbar">
+    <div class="left">
+      <button id="askBtn" class="btn icon"><span>💬</span> Ask me a question</button>
+      <button id="challengeBtn" class="btn icon"><span>⚡</span> Give me a challenge</button>
+      <button id="undoBtn" class="btn">Undo</button>
+      <button id="redoBtn" class="btn">Redo</button>
+    </div>
+    <div class="right">
+      <button id="resetViewBtn" class="btn">Reset view</button>
+      <button id="exportPngMap" class="btn">Download PNG of map</button>
+      <button id="exportBulletsPng" class="btn">Bullet points PNG</button>
+      <button id="exportTxt" class="btn">Export as text</button>
+      <button id="exportSvg" class="btn">Download image of map</button>
+    </div>
+  </div>
+
+<script>
+/* ================= Utilities ================= */
+const measure = (function(){
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  function width(text){
+    ctx.font = '600 12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial';
+    return ctx.measureText(text||'').width;
+  }
+  return { width };
+})();
+
+function radiusForLabel(label, type){
+  const minR = (type==='central') ? 46 : 28;
+  const padding = 14;
+  const w = measure.width(label);
+  const rFromText = Math.ceil(w/2) + padding;
+  const maxR = 170;
+  return Math.max(minR, Math.min(maxR, rFromText));
+}
+
+// Word wrap into tspans based on max line width
+function wrapTextToTspans(svgTextEl, text, maxWidth){
+  // Clear
+  while(svgTextEl.firstChild) svgTextEl.removeChild(svgTextEl.firstChild);
+  const words = String(text||'').split(/\s+/);
+  let line = '';
+  const lineHeight = 14; // px
+  const lines = [];
+  words.forEach(w=>{
+    const test = line ? (line+' '+w) : w;
+    if(measure.width(test) <= maxWidth) {
+      line = test;
+    } else {
+      if(line) lines.push(line);
+      line = w;
+    }
+  });
+  if(line) lines.push(line);
+  const total = lines.length;
+  lines.forEach((ln, i)=>{
+    const tspan = document.createElementNS('http://www.w3.org/2000/svg','tspan');
+    tspan.setAttribute('x', svgTextEl.getAttribute('x'));
+    // Center vertically: shift by (i - (total-1)/2) * lineHeight
+    const dy = (i - (total-1)/2) * lineHeight;
+    tspan.setAttribute('dy', dy);
+    tspan.textContent = ln;
+    svgTextEl.appendChild(tspan);
+  });
+}
+
+/* ================= Prompt banks ================= */
+const CENTRAL_QUESTIONS = [
+  "What colours could represent your theme?",
+  "What mood or atmosphere do you want to create visually?",
+  "How might texture change the meaning of this idea?",
+  "How could symbolism or metaphor be shown visually?",
+  "Which artist or designer’s style relates to your theme?",
+  "What primary research could you do to explore this idea?",
+  "What secondary sources could you look at for inspiration?",
+  "Which artist, movement, or designer has worked with a similar theme?",
+  "What keywords would help you search more effectively online?",
+  "What’s the most surprising thing you’ve discovered so far?"
+];
+const BRANCH_QUESTIONS = [
+  "How could scale or proportion affect the impact?",
+  "Where could repetition or pattern be used effectively?",
+  "Which visual elements would create the strongest contrast?",
+  "How could composition guide the viewer’s attention?",
+  "How might your idea change if you simplify the forms?",
+  "What happens if you exaggerate one visual element?",
+  "How could you use space or emptiness to emphasise meaning?",
+  "Which materials would best express this idea?",
+  "How might you test your idea quickly through an experiment?",
+  "What images, objects or environments could you observe for inspiration?",
+  "What questions could you ask others to understand your theme better?",
+  "Where might you find unusual or unexpected sources?",
+  "How could you document this research (sketches, notes, photos)?",
+  "How might you combine primary and secondary research?",
+  "Which research tool (mind map, collage, survey, interview) fits this idea best?",
+  "How might you compare two different sources of information?",
+  "What criteria will help you judge whether this source is useful?"
+];
+const SUPER_PROMPTS = [
+  "Sketch your theme using only lines, no shading.",
+  "Create a quick collage using 3 unrelated images from the internet.",
+  "Re-draw your idea but only using circles.",
+  "Find two colours that clash — use them together to express your idea.",
+  "Make a thumbnail sketch where the main shape takes up 90% of the page.",
+  "Take a photo of an everyday object and re-label it as part of your theme.",
+  "Reduce your idea to its simplest symbol or icon.",
+  "Swap scale: imagine something tiny in your theme made huge, or vice versa.",
+  "Ask a friend one question about your theme — note their answer.",
+  "Search your theme with ‘history of…’ and note one insight.",
+  "Search your theme with ‘future of…’ and note one insight.",
+  "Find one primary and one secondary source — compare what they tell you.",
+  "Spend 2 minutes sketching an object related to your idea.",
+  "Write down 3 keywords, then find a new source for each.",
+  "Find an artist who works in a different field — how might they approach this?",
+  "Find one fact and one opinion about your idea — note the difference."
+];
+
+/* ================= Model & State ================= */
+let nodes = []; // {id, label, x, y, type:'central'|'branch', parentId, color}
+let links = []; // {sourceId, targetId}
+let selectedId = null;
+let idCounter = 0;
+
+// Viewport (zoom/pan)
+let view = { x:0, y:0, k:1 };
+
+// Undo/Redo stacks
+const history = [];
+let future = [];
+let historyDebounce = null;
+
+const svg = document.getElementById('stage');
+const viewport = document.getElementById('viewport');
+const contextMenu = document.getElementById('context');
+const colorPicker = document.getElementById('colorPicker');
+const swatchesEl = document.getElementById('swatches');
+const inlineEditor = document.getElementById('inlineEditor');
+
+// Build swatches palette
+const PALETTE = ['#ffffff','#ffe8a3','#ffd1dc','#d1eaff','#c8f7dc','#e9e3ff','#f5f5f5','#f6e7cb','#c6f0ff','#fde1b9','#e1ffe1','#ffdfe6'];
+PALETTE.forEach(c=>{
+  const s = document.createElement('div');
+  s.className='swatch'; s.style.background=c; s.title=c;
+  s.onclick = ()=>{ setNodeColour(selectedId, c); };
+  swatchesEl.appendChild(s);
+});
+
+function resizeSVG(){
+  const r = document.getElementById('stage-wrap').getBoundingClientRect();
+  svg.setAttribute('width', r.width);
+  svg.setAttribute('height', r.height);
+}
+window.addEventListener('resize', resizeSVG);
+resizeSVG();
+
+function getNode(id){return nodes.find(n=>n.id===id);} 
+
+function addNode(label, x, y, type='branch', parentId=null, color='#ffffff'){
+  const id = 'n'+(++idCounter);
+  nodes.push({id,label,x,y,type,parentId,color});
+  if(parentId){ links.push({sourceId: parentId, targetId: id}); }
+  if(parentId){ layoutRadial(getNode(parentId)); }
+  selectNode(id);
+  render();
+  recordHistory();
+  saveLocal();
+  return id;
+}
+
+function deleteNode(id){
+  const toDelete = new Set();
+  function mark(nid){ toDelete.add(nid); nodes.filter(x=>x.parentId===nid).forEach(ch=>mark(ch.id)); }
+  mark(id);
+  nodes = nodes.filter(n=>!toDelete.has(n.id));
+  links = links.filter(l=>!toDelete.has(l.sourceId) && !toDelete.has(l.targetId));
+  if(selectedId && toDelete.has(selectedId)) selectedId=null;
+  render();
+  recordHistory();
+  saveLocal();
+}
+
+function layoutRadial(parent){
+  if(!parent) return;
+  const children = nodes.filter(n=>n.parentId===parent.id);
+  const R = 140; const step = (Math.PI*2)/Math.max(children.length,1);
+  children.forEach((c,i)=>{ 
+    c.x = parent.x + Math.cos(i*step)*(R+Math.random()*24-12); 
+    c.y = parent.y + Math.sin(i*step)*(R+Math.random()*24-12);
+  });
+}
+
+function selectNode(id){ selectedId = id; render(); }
+
+function clearSelection(){ selectedId = null; hideContext(); render(); }
+
+/* ================= Rendering ================= */
+function applyView(){
+  viewport.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
+}
+
+function render(){
+  applyView();
+  // clear viewport
+  while(viewport.firstChild) viewport.removeChild(viewport.firstChild);
+
+  // links
+  links.forEach(l=>{
+    const a = getNode(l.sourceId), b = getNode(l.targetId);
+    if(!a||!b) return;
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+    line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+    line.setAttribute('class','link');
+    viewport.appendChild(line);
+  });
+
+  // nodes
+  nodes.forEach(n=>{
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('data-id', n.id);
+
+    const r = radiusForLabel(n.label || (n.type==='central'?'Theme':''), n.type);
+    const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    circle.setAttribute('r', r);
+    circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y);
+    circle.setAttribute('class', 'node-circle '+(n.type==='central'?'central':'branch'));
+    circle.setAttribute('fill', n.color || '#ffffff');
+    circle.setAttribute('stroke', '#000');
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+    text.setAttribute('x', n.x); text.setAttribute('y', n.y);
+    text.setAttribute('class','node-label');
+    // Wrap text to fit within 1.6 * radius
+    wrapTextToTspans(text, n.label || (n.type==='central'?'Theme':''), r*1.6);
+
+    // selection ring
+    if(selectedId===n.id){
+      const ring = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      ring.setAttribute('r', r+6);
+      ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y);
+      ring.setAttribute('fill','none');
+      ring.setAttribute('stroke','#000');
+      ring.setAttribute('stroke-dasharray','4 3');
+      viewport.appendChild(ring);
+    }
+
+    g.appendChild(circle); g.appendChild(text); viewport.appendChild(g);
+
+    // interactions
+    g.addEventListener('pointerdown', startNodeDrag);
+    g.addEventListener('click', (e)=>{e.stopPropagation(); selectNode(n.id); showContext(n, e.clientX, e.clientY);});
+    g.addEventListener('dblclick', (e)=>{
+      e.stopPropagation();
+      inlineStartEdit(n);
+    });
+  });
+}
+
+/* ================= Inline editor ================= */
+function inlineStartEdit(node){
+  // position input near node in screen coords
+  const pt = svg.createSVGPoint(); pt.x = node.x; pt.y = node.y;
+  const ctm = svg.getScreenCTM().multiply(viewport.getCTM());
+  const sp = pt.matrixTransform(ctm);
+  inlineEditor.style.left = (sp.x - 70) + 'px';
+  inlineEditor.style.top  = (sp.y - 16) + 'px';
+  inlineEditor.value = node.label || '';
+  inlineEditor.style.display = 'block';
+  inlineEditor.focus();
+  inlineEditor.select();
+  inlineEditor.onkeydown = (e)=>{
+    if(e.key==='Enter'){
+      node.label = inlineEditor.value.trim();
+      inlineEditor.style.display = 'none';
+      render(); recordHistory(); saveLocal();
+    } else if(e.key==='Escape'){
+      inlineEditor.style.display = 'none';
+    }
+  };
+}
+
+/* ================= Context & colours ================= */
+function showContext(node, clientX, clientY){
+  contextMenu.style.display = 'block';
+  const wrapRect = document.getElementById('stage-wrap').getBoundingClientRect();
+  contextMenu.style.left = (clientX - wrapRect.left + 8) + 'px';
+  contextMenu.style.top = (clientY - wrapRect.top + 8) + 'px';
+  colorPicker.value = rgbToHex(node.color || '#ffffff');
+  contextMenu.onclick = (e)=>{
+    const act = e.target.getAttribute('data-action');
+    if(!act) return;
+    if(act==='add') newBranch(node.id);
+    if(act==='sub') newSubBranch(node.id);
+    if(act==='edit') inlineStartEdit(node);
+    if(act==='del') deleteNode(node.id);
+  }
+}
+function hideContext(){ contextMenu.style.display='none'; }
+function setNodeColour(id, colour){
+  const n = getNode(id); if(!n) return;
+  n.color = colour; render(); recordHistory(); saveLocal();
+}
+colorPicker.addEventListener('input', (e)=>{
+  if(!selectedId) return;
+  setNodeColour(selectedId, e.target.value);
+});
+
+/* ================= Node ops ================= */
+function newBranch(parentId){
+  const parent = getNode(parentId);
+  addNode('New idea', parent.x+160, parent.y, 'branch', parentId, '#ffffff');
+}
+function newSubBranch(parentId){ newBranch(parentId); }
+
+/* ================= Dragging ================= */
+let dragId=null; let dragOffset={x:0,y:0};
+function startNodeDrag(e){
+  const id = e.currentTarget.getAttribute('data-id');
+  dragId = id;
+  const n = getNode(id);
+  const pt = screenToWorld(e.clientX, e.clientY);
+  dragOffset.x = pt.x - n.x; dragOffset.y = pt.y - n.y;
+  window.addEventListener('pointermove', onNodeDrag);
+  window.addEventListener('pointerup', endNodeDrag);
+}
+function onNodeDrag(e){
+  if(!dragId) return; const n = getNode(dragId);
+  const pt = screenToWorld(e.clientX, e.clientY);
+  n.x = pt.x - dragOffset.x; n.y = pt.y - dragOffset.y;
+  render();
+}
+function endNodeDrag(){
+  if(dragId){ recordHistory(); saveLocal(); }
+  dragId=null; window.removeEventListener('pointermove', onNodeDrag); window.removeEventListener('pointerup', endNodeDrag);
+}
+
+/* ================= Zoom & Pan ================= */
+function screenToWorld(clientX, clientY){
+  // Convert screen coords to world coords considering view transform
+  const r = svg.getBoundingClientRect();
+  const x = (clientX - r.left - view.x)/view.k;
+  const y = (clientY - r.top - view.y)/view.k;
+  return {x,y};
+}
+
+let panning = false; let panStart={x:0,y:0}, viewStart={x:0,y:0};
+svg.addEventListener('pointerdown', (e)=>{
+  // start panning only if click empty area
+  if(e.target === svg){
+    panning=true; panStart.x = e.clientX; panStart.y = e.clientY; viewStart.x = view.x; viewStart.y = view.y;
+    svg.setPointerCapture(e.pointerId);
+  } else {
+    hideContext();
+  }
+});
+svg.addEventListener('pointermove', (e)=>{
+  if(!panning) return;
+  const dx = e.clientX - panStart.x;
+  const dy = e.clientY - panStart.y;
+  view.x = viewStart.x + dx;
+  view.y = viewStart.y + dy;
+  applyView();
+});
+svg.addEventListener('pointerup', (e)=>{
+  if(panning){ panning=false; svg.releasePointerCapture(e.pointerId); }
+});
+svg.addEventListener('wheel', (e)=>{
+  e.preventDefault();
+  const scaleFactor = 1.1;
+  const mouse = screenToWorld(e.clientX, e.clientY);
+  const dir = e.deltaY > 0 ? 1/scaleFactor : scaleFactor;
+  const kNew = Math.min(3, Math.max(0.3, view.k * dir));
+  // Zoom around mouse: adjust view.x/y
+  view.x = e.clientX - (mouse.x * kNew) - svg.getBoundingClientRect().left;
+  view.y = e.clientY - (mouse.y * kNew) - svg.getBoundingClientRect().top;
+  view.k = kNew;
+  applyView();
+}, {passive:false});
+
+document.getElementById('resetViewBtn').addEventListener('click', ()=>{
+  view = {x:0, y:0, k:1}; applyView();
+});
+
+/* ================= History (Undo/Redo) ================= */
+function snapshot(){
+  return JSON.stringify({nodes, links, idCounter, selectedId, view});
+}
+function restore(json){
+  try{
+    const s = JSON.parse(json);
+    nodes = s.nodes || []; links = s.links || [];
+    idCounter = s.idCounter || 0; selectedId = s.selectedId || null;
+    view = s.view || {x:0,y:0,k:1};
+    render();
+  }catch(e){ console.warn('Failed to restore state', e); }
+}
+function recordHistory(){
+  // debounce to avoid flooding while dragging
+  clearTimeout(historyDebounce);
+  historyDebounce = setTimeout(()=>{
+    history.push(snapshot());
+    if(history.length>200) history.shift();
+    future = []; // clear redo
+  }, 100);
+}
+document.getElementById('undoBtn').addEventListener('click', ()=>{
+  if(history.length<2) return;
+  const current = history.pop(); future.push(current);
+  const prev = history[history.length-1];
+  restore(prev); saveLocal();
+});
+document.getElementById('redoBtn').addEventListener('click', ()=>{
+  if(!future.length) return;
+  const next = future.pop(); history.push(next);
+  restore(next); saveLocal();
+});
+
+/* ================= Local storage ================= */
+const LS_KEY = 'mindmap_v3_state';
+function saveLocal(){
+  localStorage.setItem(LS_KEY, snapshot());
+}
+function loadLocal(){
+  const s = localStorage.getItem(LS_KEY);
+  if(s){ restore(s); history.length = 0; history.push(snapshot()); }
+}
+
+/* ================= Exports ================= */
+function buildOutline(){
+  if(!nodes.length) return '';
+  const root = nodes.find(n=>n.type==='central') || nodes[0];
+  let out = `Theme: ${root.label}\n`;
+  function walk(parent, depth){
+    const children = nodes.filter(n=>n.parentId===parent.id);
+    children.forEach(ch=>{ out += `${'  '.repeat(depth)}- ${ch.label}\n`; walk(ch, depth+1); });
+  }
+  walk(root,1);
+  return out;
+}
+document.getElementById('exportTxt').addEventListener('click', ()=>{
+  const blob = new Blob([buildOutline()], {type:'text/plain'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'mindmap-outline.txt'; a.click(); URL.revokeObjectURL(a.href);
+});
+
+// Existing SVG download
+function downloadSVG(){
+  const serializer = new XMLSerializer();
+  const clone = svg.cloneNode(true);
+  const style = document.createElementNS('http://www.w3.org/2000/svg','style');
+  style.textContent = `.node-label{font:12px sans-serif;font-weight:600;text-anchor:middle;dominant-baseline:middle;}`;
+  clone.insertBefore(style, clone.firstChild);
+  const src = serializer.serializeToString(clone);
+  const blob = new Blob([src], {type:'image/svg+xml'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'mindmap.svg'; a.click(); URL.revokeObjectURL(a.href);
+}
+document.getElementById('exportSvg').addEventListener('click', downloadSVG);
+
+// New: PNG of the map (rasterise SVG)
+document.getElementById('exportPngMap').addEventListener('click', ()=>{
+  const serializer = new XMLSerializer();
+  const clone = svg.cloneNode(true);
+  const style = document.createElementNS('http://www.w3.org/2000/svg','style');
+  style.textContent = `.node-label{font:12px sans-serif;font-weight:600;text-anchor:middle;dominant-baseline:middle;}`;
+  clone.insertBefore(style, clone.firstChild);
+  const src = serializer.serializeToString(clone);
+  const svg64 = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(src);
+  const img = new Image();
+  img.onload = function(){
+    const r = svg.getBoundingClientRect();
+    const canvas = document.createElement('canvas');
+    canvas.width = r.width; canvas.height = r.height;
+    const ctx = canvas.getContext('2d');
+    // draw current background colour of stage
+    // We'll rasterise with white to be safe for printing
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+    canvas.toBlob((blob)=>{
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'mindmap.png'; a.click(); URL.revokeObjectURL(a.href);
+    });
+  };
+  img.src = svg64;
+});
+
+// Bullet points PNG export
+document.getElementById('exportBulletsPng').addEventListener('click', ()=>{
+  if(!nodes.length) return;
+  const labels = nodes.map(n => (n.label ?? '')).filter(s => s!=='');
+  const pad = 40, line = 32, width = 1400;
+  const height = Math.max(200, pad*2 + labels.length*line);
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,width,height);
+  ctx.fillStyle = '#111'; ctx.font = '500 22px system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial';
+  let y = pad + 10;
+  labels.forEach(txt => { ctx.fillText('• ' + txt, pad, y); y += line; });
+  canvas.toBlob((blob)=>{
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'mindmap-bullets.png'; a.click(); URL.revokeObjectURL(a.href);
+  });
+});
+
+/* ================= Background selector ================= */
+document.getElementById('bgSelect').addEventListener('change', (e)=>{
+  document.body.className = e.target.value;
+  saveLocal();
+});
+
+/* ================= Helpers ================= */
+function rgbToHex(col){
+  if(!col) return '#ffffff';
+  if(col[0]==='#') return col;
+  const ctx = document.createElement('canvas').getContext('2d');
+  ctx.fillStyle = col;
+  const c = ctx.fillStyle;
+  const m = c.match(/^rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/i);
+  if(!m) return '#ffffff';
+  return '#'+[m[1],m[2],m[3]].map(v=>('0'+parseInt(v,10).toString(16)).slice(-2)).join('');
+}
+
+/* ================= Init ================= */
+(function init(){
+  // Try load from local storage
+  if(localStorage.getItem('mindmap_v3_state')){
+    loadLocal();
+  } else {
+    const r = svg.getBoundingClientRect();
+    nodes = []; links = []; idCounter = 0; view = {x:0,y:0,k:1};
+    const id = addNode('Theme', r.width/2, r.height/2, 'central', null, '#ffffff');
+    selectNode(id);
+    render();
+    history.push(snapshot());
+    saveLocal();
+  }
+})();
+
+// Theme creation
+const themeInput = document.getElementById('themeInput');
+const makeTheme = document.getElementById('makeTheme');
+makeTheme.addEventListener('click', ()=>{
+  if(!themeInput.value.trim()) return;
+  const r = svg.getBoundingClientRect();
+  nodes = []; links = []; idCounter=0; selectedId=null; view={x:0,y:0,k:1};
+  addNode(themeInput.value.trim(), r.width/2, r.height/2, 'central', null, '#ffffff');
+  render(); history.length = 0; history.push(snapshot()); future = []; saveLocal();
+});
+themeInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') makeTheme.click(); });
+</script>
+</body>
+</html>
